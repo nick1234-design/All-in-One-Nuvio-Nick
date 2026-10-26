@@ -312,6 +312,50 @@ function extractSourceResults($, el) {
     return null;
   });
 }
+var PIXELDRAIN_DOMAINS = [
+  "pixeldrain.com",
+  "pixeldrain.net",
+  "pixeldra.in",
+  "pixeldrain.nl",
+  "pixeldrain.biz",
+  "pixeldrain.tech",
+  "pixeldrain.dev"
+];
+var PIXELDRAIN_HOST_PATTERN = PIXELDRAIN_DOMAINS.map((d) => d.replace(/\./g, "\\.")).join("|");
+function isPixelDrainHost(hostname) {
+  const host = String(hostname || "").toLowerCase();
+  return PIXELDRAIN_DOMAINS.some((d) => host === d || host.endsWith("." + d));
+}
+function normalizePixelDrainUrl(rawUrl, baseUrl) {
+  let parsed;
+  try {
+    parsed = new URL(String(rawUrl).trim(), baseUrl);
+  } catch (e) {
+    return null;
+  }
+  if (!/^https?:$/.test(parsed.protocol) || !isPixelDrainHost(parsed.hostname))
+    return null;
+  const uMatch = parsed.pathname.match(/^\/u\/([A-Za-z0-9_-]+)/i);
+  if (uMatch)
+    return `${parsed.protocol}//${parsed.host}/api/file/${uMatch[1]}`;
+  if (/^\/api\/file\/[A-Za-z0-9_-]+/i.test(parsed.pathname))
+    return parsed.toString();
+  return null;
+}
+function findPixelDrainUrlsInText(text) {
+  if (!text)
+    return [];
+  const cleaned = String(text).replace(/\\\//g, "/").replace(/&amp;/g, "&");
+  const re = new RegExp(
+    `(?:https?:)?//(?:[a-z0-9-]+\\.)*(?:${PIXELDRAIN_HOST_PATTERN})/(?:u|api/file)/[A-Za-z0-9_-]+(?:\\?[^\\s"'<>\\\\)]*)?`,
+    "gi"
+  );
+  return cleaned.match(re) || [];
+}
+function pixelDrainDomainsMentioned(text) {
+  const lower = String(text || "").replace(/\\\//g, "/").toLowerCase();
+  return PIXELDRAIN_DOMAINS.filter((d) => lower.includes(d));
+}
 function extractHubCloud(hubCloudUrl, baseMeta) {
   return __async(this, null, function* () {
     if (!hubCloudUrl)
@@ -334,6 +378,22 @@ function extractHubCloud(hubCloudUrl, baseMeta) {
       bytes: parseBytes(sizeText) || baseMeta.bytes,
       title: titleText || baseMeta.title
     });
+    const pixelSeen = new Set();
+    const pixelFoundVia = { anchor: 0, attribute: 0, script: 0, raw: 0 };
+    const pixelDomainsFound = new Set();
+    const addPixelDrain = (rawUrl, via) => {
+      const normalized = normalizePixelDrainUrl(rawUrl, finalLinksUrl);
+      if (!normalized)
+        return false;
+      const key = normalized.toLowerCase().split("?")[0];
+      if (pixelSeen.has(key))
+        return false;
+      pixelSeen.add(key);
+      pixelFoundVia[via]++;
+      pixelDomainsFound.add(new URL(normalized).hostname.toLowerCase());
+      results.push({ source: "PixelDrain", url: normalized, meta: currentMeta });
+      return true;
+    };
     $("a").each((_, el) => {
       const text = $(el).text().trim();
       const href = $(el).attr("href");
@@ -346,24 +406,9 @@ function extractHubCloud(hubCloudUrl, baseMeta) {
         return;
       }
 
-      // PixelDrain direct file source
-      if (/pixeldrain\.(?:com|net|dev)\/(?:u|api\/file)\//i.test(absoluteUrl)) {
-        const fileMatch = absoluteUrl.match(
-          /pixeldrain\.(?:com|net|dev)\/u\/([a-zA-Z0-9]+)/i
-        );
-
-        const pixelDrainUrl = fileMatch
-          ? absoluteUrl.replace(
-              /\/u\/([a-zA-Z0-9]+)/i,
-              `/api/file/${fileMatch[1]}`
-            )
-          : absoluteUrl;
-
-        results.push({
-          source: "PixelDrain",
-          url: pixelDrainUrl,
-          meta: currentMeta
-        });
+      // PixelDrain direct file source (any known PixelDrain domain)
+      if (normalizePixelDrainUrl(absoluteUrl)) {
+        addPixelDrain(absoluteUrl, "anchor");
 
       } else if (
         text.includes("10Gbps") ||
@@ -404,6 +449,73 @@ function extractHubCloud(hubCloudUrl, baseMeta) {
         });
       }
     });
+
+    // PixelDrain links that are not plain <a href>: data-*/onclick/other attributes
+    $("*").each((_, el) => {
+      if (!el.attribs || el.name === "script" || el.name === "style")
+        return;
+      for (const attrName of Object.keys(el.attribs)) {
+        const attrValue = el.attribs[attrName];
+        if (attrValue && /pixeldra/i.test(attrValue)) {
+          for (const candidate of findPixelDrainUrlsInText(attrValue)) {
+            addPixelDrain(candidate, "attribute");
+          }
+        }
+      }
+    });
+
+    // PixelDrain links stored in inline JavaScript variables / JSON
+    let scriptCount = 0;
+    let atobCalls = 0;
+    $("script").each((_, el) => {
+      const code = $(el).html() || "";
+      scriptCount++;
+      atobCalls += (code.match(/atob\s*\(/g) || []).length;
+      for (const candidate of findPixelDrainUrlsInText(code)) {
+        addPixelDrain(candidate, "script");
+      }
+    });
+
+    // Last resort: any other occurrence in the raw response (comments, escaped strings, etc.)
+    for (const candidate of findPixelDrainUrlsInText(linksHtml)) {
+      addPixelDrain(candidate, "raw");
+    }
+
+    // Safe diagnostics: hostnames, counts and button labels only. No full URLs, cookies, tokens or headers.
+    try {
+      const hostCounts = {};
+      const labels = [];
+      $("a").each((_, el) => {
+        const href = $(el).attr("href");
+        if (href) {
+          try {
+            const h = new URL(href, finalLinksUrl).hostname.toLowerCase();
+            hostCounts[h] = (hostCounts[h] || 0) + 1;
+          } catch (e) {
+          }
+        }
+        const label = $(el).text().replace(/\s+/g, " ").trim();
+        if (label && labels.length < 12)
+          labels.push(label.slice(0, 40));
+      });
+      let finalHost = "unknown";
+      try {
+        finalHost = new URL(finalLinksUrl).hostname;
+      } catch (e) {
+      }
+      const mentioned = pixelDrainDomainsMentioned(linksHtml);
+      console.log(`[4KHDHub][PixelDrain] final-links page host=${finalHost} htmlLength=${linksHtml.length} anchors=${$("a").length} buttons=${$("button").length} scripts=${scriptCount} atobCalls=${atobCalls}`);
+      console.log(`[4KHDHub][PixelDrain] anchor hosts: ${JSON.stringify(hostCounts)}`);
+      console.log(`[4KHDHub][PixelDrain] anchor labels: ${JSON.stringify(labels)}`);
+      console.log(`[4KHDHub][PixelDrain] "pixeldra" appears in response: ${/pixeldra/i.test(linksHtml)}; known domains mentioned: ${JSON.stringify(mentioned)}`);
+      if (pixelSeen.size > 0) {
+        console.log(`[4KHDHub][PixelDrain] usable links found: ${pixelSeen.size} (anchor=${pixelFoundVia.anchor}, attribute=${pixelFoundVia.attribute}, script=${pixelFoundVia.script}, raw=${pixelFoundVia.raw}); domains: ${JSON.stringify(Array.from(pixelDomainsFound))}`);
+      } else {
+        console.log(`[4KHDHub][PixelDrain] no usable /u/ or /api/file/ PixelDrain links exposed in this response`);
+      }
+    } catch (e) {
+      console.log(`[4KHDHub][PixelDrain] diagnostics failed: ${e.message}`);
+    }
     return results;
   });
 }
