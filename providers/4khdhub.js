@@ -337,30 +337,69 @@ function extractHubCloud(hubCloudUrl, baseMeta) {
     $("a").each((_, el) => {
       const text = $(el).text().trim();
       const href = $(el).attr("href");
-      if (!href)
+      if (!href) return;
+
+      let absoluteUrl;
+      try {
+        absoluteUrl = new URL(href, finalLinksUrl).toString();
+      } catch {
         return;
-      if (text.includes("10Gbps") || text.includes("PixelServer") || href.includes("hubcloud.cx")) {
+      }
+
+      // PixelDrain direct file source
+      if (/pixeldrain\.(?:com|net|dev)\/(?:u|api\/file)\//i.test(absoluteUrl)) {
+        const fileMatch = absoluteUrl.match(
+          /pixeldrain\.(?:com|net|dev)\/u\/([a-zA-Z0-9]+)/i
+        );
+
+        const pixelDrainUrl = fileMatch
+          ? absoluteUrl.replace(
+              /\/u\/([a-zA-Z0-9]+)/i,
+              `/api/file/${fileMatch[1]}`
+            )
+          : absoluteUrl;
+
+        results.push({
+          source: "PixelDrain",
+          url: pixelDrainUrl,
+          meta: currentMeta
+        });
+
+      } else if (
+        text.includes("10Gbps") ||
+        text.includes("PixelServer") ||
+        absoluteUrl.includes("hubcloud.cx")
+      ) {
         results.push({
           source: "HubCloud 10Gbps",
-          url: href,
+          url: absoluteUrl,
           meta: currentMeta
         });
-      } else if (text.includes("Download File") || href.includes("r2.dev")) {
+
+      } else if (
+        text.includes("Download File") ||
+        absoluteUrl.includes("r2.dev")
+      ) {
         results.push({
           source: "Direct R2",
-          url: href,
+          url: absoluteUrl,
           meta: currentMeta
         });
-      } else if (text.includes("ZipDisk") || href.includes("workers.dev")) {
+
+      } else if (
+        text.includes("ZipDisk") ||
+        absoluteUrl.includes("workers.dev")
+      ) {
         results.push({
           source: "ZipDisk Server",
-          url: href,
+          url: absoluteUrl,
           meta: currentMeta
         });
+
       } else if (text.includes("FSL")) {
         results.push({
           source: "FSL",
-          url: href,
+          url: absoluteUrl,
           meta: currentMeta
         });
       }
