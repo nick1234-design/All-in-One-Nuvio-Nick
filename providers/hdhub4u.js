@@ -66,7 +66,7 @@ var __async = (__this, __arguments, generator) => {
 var import_cheerio_without_node_native2 = __toESM(require("cheerio-without-node-native"));
 
 // src/hdhub4u/constants.js
-var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+var TMDB_API_KEY = "0c3d05751e190fc2c3bef2f653b98d54";
 var TMDB_BASE_URL = "https://api.themoviedb.org/3";
 var MAIN_URL = "https://new8.hdhub4u.cl";
 var DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
