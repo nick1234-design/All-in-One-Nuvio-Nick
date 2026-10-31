@@ -66,7 +66,7 @@ var __async = (__this, __arguments, generator) => {
 var import_cheerio_without_node_native2 = __toESM(require("cheerio-without-node-native"));
 
 // src/moviesdrive/constants.js
-var MAIN_URL = "https://new4.moviesdrive.beer";
+var MAIN_URL = "https://new10.hdhub4u.cl";
 var DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 var HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
