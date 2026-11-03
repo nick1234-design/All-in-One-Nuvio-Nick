@@ -259,7 +259,7 @@ function formatCholeCard(opt) {
 }
 var TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 var TMDB_BASE_URL = "https://api.tmdb.org/3";
-var MAIN_URL = "https://new7.hdhub4u.cl";
+var MAIN_URL = "https://new10.hdhub4u.cl";
 var DOMAINS_URL = "https://cdn.jsdelivr.net/gh/phisher98/TVVVV@main/domains.json";
 var DOMAIN_CACHE_TTL = 4 * 60 * 60 * 1e3;
 var HEADERS = {
